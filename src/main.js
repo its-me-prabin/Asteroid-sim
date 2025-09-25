@@ -34,7 +34,7 @@ const detail = 12;
 const loader = new THREE.TextureLoader();
 
 // Add error handling for texture loading
-loader.load("/textures/earthmap10k.jpg", 
+loader.load("./textures/earthmap10k.jpg", 
   (texture) => console.log("Earth map loaded successfully"),
   undefined,
   (error) => console.error("Error loading earth map:", error)
@@ -42,8 +42,8 @@ loader.load("/textures/earthmap10k.jpg",
 
 const geometry = new THREE.IcosahedronGeometry(1, detail);
 const material = new THREE.MeshPhongMaterial({
-  map: loader.load("/textures/earthmap10k.jpg"),
-  specularMap: loader.load("/textures/earthspec10k.jpg"),
+  map: loader.load("./textures/earthmap10k.jpg"),
+  specularMap: loader.load("./textures/earthspec10k.jpg"),
   bumpMap: loader.load("/textures/earthbump10k.jpg"),
   bumpScale: 0.04,
 });
@@ -51,18 +51,18 @@ const earthMesh = new THREE.Mesh(geometry, material);
 earthGroup.add(earthMesh);
 
 const lightsMat = new THREE.MeshBasicMaterial({
-  map: loader.load("/textures/earthlights10k.jpg"),
+  map: loader.load("./textures/earthlights10k.jpg"),
   blending: THREE.AdditiveBlending,
 });
 const lightsMesh = new THREE.Mesh(geometry, lightsMat);
 earthGroup.add(lightsMesh);
 
 const cloudsMat = new THREE.MeshStandardMaterial({
-  map: loader.load("/textures/earthcloudmap.jpg"),
+  map: loader.load("./textures/earthcloudmap.jpg"),
   transparent: true,
   opacity: 0.4,
   blending: THREE.AdditiveBlending,
-  alphaMap: loader.load('/textures/earthcloudmaptrans.jpg'),
+  alphaMap: loader.load('./textures/earthcloudmaptrans.jpg'),
 });
 const cloudsMesh = new THREE.Mesh(geometry, cloudsMat);
 cloudsMesh.scale.setScalar(1.003);
@@ -92,7 +92,7 @@ const sunMesh = new THREE.Mesh(new THREE.SphereGeometry(0.5, 24, 24), sunMat);
 scene.add(sunMesh);
 
 // Add a subtle glow using a sprite (lens flare-like)
-const glowTex = new THREE.TextureLoader().load('/textures/lensflare0.png');
+const glowTex = new THREE.TextureLoader().load('./textures/lensflare0.png');
 const sunGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0xffcc88, transparent: true, opacity: 0.6, depthWrite: false }));
 sunGlow.scale.set(2.2, 2.2, 1);
 sunMesh.add(sunGlow);
