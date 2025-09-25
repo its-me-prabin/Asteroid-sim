@@ -30,27 +30,27 @@ const detail = 12;
 const loader = new THREE.TextureLoader();
 const geometry = new THREE.IcosahedronGeometry(1, detail);
 const material = new THREE.MeshPhongMaterial({
-  map: loader.load("/public/textures/earthmap10k.jpg"),
-  specularMap: loader.load("/public/textures/earthspec10k.jpg"),
-  bumpMap: loader.load("/public/textures/earthbump10k.jpg"),
+  map: loader.load("./public/textures/earthmap10k.jpg"),
+  specularMap: loader.load("./public/textures/earthspec10k.jpg"),
+  bumpMap: loader.load("./public/textures/earthbump10k.jpg"),
   bumpScale: 0.04,
 });
 const earthMesh = new THREE.Mesh(geometry, material);
 earthGroup.add(earthMesh);
 
 const lightsMat = new THREE.MeshBasicMaterial({
-  map: loader.load("/public/textures/earthlights10k.jpg"),
+  map: loader.load("./public/textures/earthlights10k.jpg"),
   blending: THREE.AdditiveBlending,
 });
 const lightsMesh = new THREE.Mesh(geometry, lightsMat);
 earthGroup.add(lightsMesh);
 
 const cloudsMat = new THREE.MeshStandardMaterial({
-  map: loader.load("/public/textures/earthcloudmap.jpg"),
+  map: loader.load("./public/textures/earthcloudmap.jpg"),
   transparent: true,
   opacity: 0.4,
   blending: THREE.AdditiveBlending,
-  alphaMap: loader.load('/public/textures/earthcloudmaptrans.jpg'),
+  alphaMap: loader.load('./public/textures/earthcloudmaptrans.jpg'),
 });
 const cloudsMesh = new THREE.Mesh(geometry, cloudsMat);
 cloudsMesh.scale.setScalar(1.003);
@@ -80,7 +80,7 @@ const sunMesh = new THREE.Mesh(new THREE.SphereGeometry(0.5, 24, 24), sunMat);
 scene.add(sunMesh);
 
 // Add a subtle glow using a sprite (lens flare-like)
-const glowTex = new THREE.TextureLoader().load('/textures/lensflare0.png');
+const glowTex = new THREE.TextureLoader().load('./public/textures/lensflare0.png');
 const sunGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0xffcc88, transparent: true, opacity: 0.6, depthWrite: false }));
 sunGlow.scale.set(2.2, 2.2, 1);
 sunMesh.add(sunGlow);
@@ -390,7 +390,7 @@ function animate(ts) {
     const hitGround = toCenter <= earthRadius + 0.1;
     const reachedTarget = p.marker.position.distanceTo(p.target) < 0.2;
     if (hitGround || reachedTarget) {
-      const tex = new THREE.TextureLoader().load('/textures/lensflare3.png', () => {
+      const tex = new THREE.TextureLoader().load('./public/textures/lensflare3.png', () => {
         // try showing modal once texture ensures render pipeline is active
         if (hitGround) {
           const densEl = document.getElementById('densInput');
