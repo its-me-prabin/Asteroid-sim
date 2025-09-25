@@ -1,0 +1,298 @@
+import * as THREE from "three";
+import { OrbitControls } from 'jsm/controls/OrbitControls.js';
+
+import getStarfield from "./getStarfield.js";
+import { getFresnelMat } from "./getFresnelMat.js";
+
+/* ---------------------- Scene & Earth (kept from your original) ---------------------- */
+const w = window.innerWidth;
+const h = window.innerHeight;
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(75, w / h, 0.1, 1000);
+camera.position.set(0, 2.5, 8);
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(w, h);
+document.body.appendChild(renderer.domElement);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
+renderer.toneMappingExposure = 1.2;
+
+const earthGroup = new THREE.Group();
+earthGroup.rotation.z = -23.4 * Math.PI / 180;
+scene.add(earthGroup);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.maxDistance = 250;
+controls.target.set(5, 0, 0);
+controls.update();
+
+const detail = 12;
+const loader = new THREE.TextureLoader();
+const geometry = new THREE.IcosahedronGeometry(1, detail);
+const material = new THREE.MeshPhongMaterial({
+  map: loader.load("/public/textures/earthmap10k.jpg"),
+  specularMap: loader.load("/public/textures/earthspec10k.jpg"),
+  bumpMap: loader.load("/public/textures/earthbump10k.jpg"),
+  bumpScale: 0.04,
+});
+const earthMesh = new THREE.Mesh(geometry, material);
+earthGroup.add(earthMesh);
+
+const lightsMat = new THREE.MeshBasicMaterial({
+  map: loader.load("/public/textures/earthlights10k.jpg"),
+  blending: THREE.AdditiveBlending,
+});
+const lightsMesh = new THREE.Mesh(geometry, lightsMat);
+earthGroup.add(lightsMesh);
+
+const cloudsMat = new THREE.MeshStandardMaterial({
+  map: loader.load("/public/textures/earthcloudmap.jpg"),
+  transparent: true,
+  opacity: 0.4,
+  blending: THREE.AdditiveBlending,
+  alphaMap: loader.load('/public/textures/earthcloudmaptrans.jpg'),
+});
+const cloudsMesh = new THREE.Mesh(geometry, cloudsMat);
+cloudsMesh.scale.setScalar(1.003);
+earthGroup.add(cloudsMesh);
+
+const fresnelMat = getFresnelMat();
+const glowMesh = new THREE.Mesh(geometry, fresnelMat);
+glowMesh.scale.setScalar(1.01);
+earthGroup.add(glowMesh);
+
+const stars = getStarfield({numStars: 2000});
+scene.add(stars);
+
+const sunLight = new THREE.DirectionalLight(0xffffff, 2.2);
+sunLight.position.set(-2, 0.5, 1.5);
+scene.add(sunLight);
+// Add gentle ambient to brighten overall scene
+scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+// Ensure initial view frames Earth
+camera.lookAt(5, 0, 0);
+
+/* ---------------------- Simple Sun + Earth orbit positioning ---------------------- */
+/* We'll place a small sun at origin. We'll render Earth's orbit ring at 1 AU (scaled). */
+const AU_TO_SCENE = 5; // 1 AU == 5 scene units (tweak as you like)
+const sunMat = new THREE.MeshBasicMaterial({ color: 0xffe0aa });
+const sunMesh = new THREE.Mesh(new THREE.SphereGeometry(0.5, 24, 24), sunMat);
+scene.add(sunMesh);
+
+// Add a subtle glow using a sprite (lens flare-like)
+const glowTex = new THREE.TextureLoader().load('/textures/lensflare0.png');
+const sunGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0xffcc88, transparent: true, opacity: 0.6, depthWrite: false }));
+sunGlow.scale.set(2.2, 2.2, 1);
+sunMesh.add(sunGlow);
+
+/* Move the Earth mesh to its orbital position at 1 AU (so orbits appear relative to sun) */
+const earthOrbitDistance = 1 * AU_TO_SCENE;
+earthGroup.position.set(earthOrbitDistance, 0, 0);
+earthMesh.scale.setScalar(0.25); // make planet smaller relative to orbit visualization
+lightsMesh.scale.copy(earthMesh.scale);
+cloudsMesh.scale.setScalar(1.003 * 0.25);
+glowMesh.scale.setScalar(1.01 * 0.25);
+// Make Earth bigger and glow brighter
+earthMesh.scale.setScalar(0.4);
+lightsMesh.scale.copy(earthMesh.scale);
+cloudsMesh.scale.setScalar(1.003 * 0.4);
+glowMesh.scale.setScalar(1.01 * 0.4);
+glowMesh.material.uniforms.uOpacity.value = 0.35;
+
+/* Draw Earth's orbit ring (for reference) */
+function drawOrbitRing(radius) {
+  const segments = 360;
+  const points = [];
+  for (let i = 0; i <= segments; i++) {
+    const theta = (i / segments) * Math.PI * 2;
+    points.push(new THREE.Vector3(Math.cos(theta) * radius, 0, Math.sin(theta) * radius));
+  }
+  const g = new THREE.BufferGeometry().setFromPoints(points);
+  const mat = new THREE.LineBasicMaterial({ color: 0x4444ff, transparent: true, opacity: 0.25 });
+  const l = new THREE.LineLoop(g, mat);
+  scene.add(l);
+}
+drawOrbitRing(earthOrbitDistance);
+
+/* ---------------------- Orbit visualization helpers (Kepler -> Cartesian) ---------------------- */
+
+/* Utility: solve Kepler's equation M = E - e*sin E for E given M & e */
+function solveKepler(M, e, maxIter = 60, tol = 1e-6) {
+  // normalize M to -PI..PI
+  M = ((M + Math.PI) % (2 * Math.PI)) - Math.PI;
+  let E = e < 0.8 ? M : Math.PI;
+  for (let i = 0; i < maxIter; i++) {
+    const f = E - e * Math.sin(E) - M;
+    const fp = 1 - e * Math.cos(E);
+    const dE = f / fp;
+    E -= dE;
+    if (Math.abs(dE) < tol) break;
+  }
+  return E;
+}
+
+/* Create orbit points (in scene units) from classical orbital elements (all angles in radians) */
+/* a in AU, e, i (rad), Omega (ra), omega (arg per), samples */
+function orbitPointsFromElements(a, e, i, Omega, omega, samples = 360) {
+  const points = [];
+  for (let si = 0; si <= samples; si++) {
+    const M = (si / samples) * 2 * Math.PI;
+    const E = solveKepler(M, e);
+    const nu = 2 * Math.atan2(Math.sqrt(1 + e) * Math.sin(E / 2), Math.sqrt(1 - e) * Math.cos(E / 2));
+    const r = a * (1 - e * Math.cos(E)); // in AU
+    // position in orbital plane
+    const xOrb = r * Math.cos(nu);
+    const yOrb = r * Math.sin(nu);
+    // rotate to ecliptic / inertial frame via: r_vec = Rz(Omega) * Rx(i) * Rz(omega) * [xOrb, yOrb, 0]
+    const cosO = Math.cos(Omega), sinO = Math.sin(Omega);
+    const cosi = Math.cos(i), sini = Math.sin(i);
+    const cosw = Math.cos(omega), sinw = Math.sin(omega);
+
+    // position vector in ecliptic coordinates
+    const X = (cosO * cosw - sinO * sinw * cosi) * xOrb + (-cosO * sinw - sinO * cosw * cosi) * yOrb;
+    const Y = (sinO * cosw + cosO * sinw * cosi) * xOrb + (-sinO * sinw + cosO * cosw * cosi) * yOrb;
+    const Z = (sinw * sini) * xOrb + (cosw * sini) * yOrb;
+
+    points.push(new THREE.Vector3(X * AU_TO_SCENE, Z * AU_TO_SCENE, Y * AU_TO_SCENE));
+  }
+  return points;
+}
+
+/* Support multiple asteroids: store orbit + marker per ID */
+const asteroidObjects = new Map(); // id -> { line, marker, points, t, color }
+
+function createAsteroidVisual(points, color = 0xffaa33) {
+  const g = new THREE.BufferGeometry().setFromPoints(points);
+  const line = new THREE.Line(g, new THREE.LineBasicMaterial({ color, linewidth: 2 }));
+  const marker = new THREE.Mesh(
+    new THREE.SphereGeometry(0.12, 12, 12),
+    new THREE.MeshStandardMaterial({ color: 0xffaa66, emissive: 0x552200, emissiveIntensity: 1.5 })
+  );
+  scene.add(line);
+  scene.add(marker);
+  return { line, marker };
+}
+
+function randomNiceColor(seed = Math.random()) {
+  const hue = (seed * 360) % 360;
+  const color = new THREE.Color().setHSL(hue / 360, 0.7, 0.6);
+  return color.getHex();
+}
+
+// Expose hooks for index.html (multi-add/remove/clear)
+window.addAsteroidOrbit = function(orbitalData, id = undefined, meta = undefined) {
+  if (!orbitalData) return;
+  const key = id || `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  if (asteroidObjects.has(key)) return; // already added
+  const a = parseFloat(orbitalData.semi_major_axis) || parseFloat(orbitalData.semi_major_axis_au) || 1.5; // AU
+  const e = parseFloat(orbitalData.eccentricity) || 0.2;
+  const i = THREE.MathUtils.degToRad(parseFloat(orbitalData.inclination) || 0);
+  const Omega = THREE.MathUtils.degToRad(parseFloat(orbitalData.ascending_node_longitude) || 0);
+  const omega = THREE.MathUtils.degToRad(parseFloat(orbitalData.perihelion_argument) || 0);
+  const pts = orbitPointsFromElements(a, e, i, Omega, omega, 1400);
+  const color = randomNiceColor();
+  const { line, marker } = createAsteroidVisual(pts, color);
+  marker.userData.id = key;
+  marker.userData.meta = meta;
+  asteroidObjects.set(key, { line, marker, points: pts, t: Math.random(), color, meta });
+  return key;
+};
+
+window.removeAsteroid = function(id) {
+  const obj = asteroidObjects.get(id);
+  if (!obj) return;
+  scene.remove(obj.line); obj.line.geometry.dispose(); obj.line.material.dispose();
+  scene.remove(obj.marker); obj.marker.geometry.dispose(); obj.marker.material.dispose();
+  asteroidObjects.delete(id);
+};
+
+window.clearAsteroids = function() {
+  for (const [id, obj] of asteroidObjects.entries()) {
+    scene.remove(obj.line); obj.line.geometry.dispose(); obj.line.material.dispose();
+    scene.remove(obj.marker); obj.marker.geometry.dispose(); obj.marker.material.dispose();
+  }
+  asteroidObjects.clear();
+};
+
+// Click picking to show asteroid info panel when clicking a marker
+const raycaster = new THREE.Raycaster();
+const mouse = new THREE.Vector2();
+
+function onClick(event) {
+  const rect = renderer.domElement.getBoundingClientRect();
+  mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+  mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+  raycaster.setFromCamera(mouse, camera);
+  const markers = Array.from(asteroidObjects.values()).map(o => o.marker);
+  const hits = raycaster.intersectObjects(markers, false);
+  if (hits.length) {
+    const hit = hits[0].object;
+    const meta = hit.userData.meta;
+    const id = hit.userData.id;
+    const panel = document.getElementById("infoPanel");
+    if (panel) {
+      if (meta) {
+        panel.innerHTML = `
+          <h3>${meta.name}</h3>
+          <p><b>ID:</b> ${meta.id}</p>
+          <p><b>Size:</b> ${meta.est_diameter || 'N/A'} m</p>
+          <p><b>Speed:</b> ${meta.speed || 'N/A'} km/h</p>
+          <p><b>Nearest to Earth:</b> ${meta.nearest_distance_km || 'N/A'} km</p>
+          <p><b>Discovered:</b> ${meta.discovery_date || 'N/A'}</p>
+        `;
+      } else {
+        panel.innerHTML = `
+          <h3>Asteroid ${id}</h3>
+          <p>No additional metadata available.</p>
+        `;
+      }
+      panel.style.display = "block";
+    }
+  }
+}
+renderer.domElement.addEventListener('click', onClick);
+
+/* ---------------------- Animation loop ---------------------- */
+let lastTS = performance.now();
+function animate(ts) {
+  requestAnimationFrame(animate);
+  const dt = (ts - lastTS) / 1000;
+  lastTS = ts;
+
+  // spin earth components (kept from original)
+  earthMesh.rotation.y += 0.002;
+  lightsMesh.rotation.y += 0.002;
+  cloudsMesh.rotation.y += 0.0023;
+  glowMesh.rotation.y += 0.002;
+
+  // revolve Earth around the Sun
+  const revSpeed = 0.05; // radians per second (tweak)
+  const angle = ts * 0.001 * revSpeed;
+  earthGroup.position.set(Math.cos(angle) * earthOrbitDistance, 0, Math.sin(angle) * earthOrbitDistance);
+
+  // animate all asteroids along their orbits
+  for (const obj of asteroidObjects.values()) {
+    obj.t = (obj.t + dt * 0.03) % 1; // speed multiplier
+    const idx = Math.floor(obj.t * (obj.points.length - 1));
+    obj.marker.position.copy(obj.points[idx]);
+  }
+
+  controls.update();
+  renderer.render(scene, camera);
+}
+animate(performance.now());
+
+/* handle resize */
+function handleWindowResize () {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+}
+window.addEventListener('resize', handleWindowResize, false);
+
+/* Clean up on navigation (optional) */
+window.addEventListener("beforeunload", () => {
+  renderer.dispose();
+});
+
+

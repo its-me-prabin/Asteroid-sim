@@ -1,0 +1,569 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Asteroid Simulation</title>
+    <style>
+      body {
+        margin: 0;
+        overflow: hidden;
+        background: radial-gradient(ellipse at center, #1b355f 0%, #0b1b33 55%, #081020 100%);
+      }
+      nav {
+        background: #1e1e1f;
+        color: white;
+        padding: 10px 20px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+      nav h1 {
+        margin: 0;
+        color: cyan;
+      }
+      nav h1 a { color: cyan; text-decoration: none; cursor: pointer; }
+      .search-container {
+        display: flex;
+        align-items: center;
+        position: relative;
+      }
+      .search-container input {
+        padding: 6px;
+        border-radius: 4px;
+        border: none;
+        outline: none;
+      }
+      .search-container button {
+        margin-left: 6px;
+        padding: 6px 10px;
+        border: none;
+        background: cyan;
+        border-radius: 4px;
+        cursor: pointer;
+      }
+      .mode-buttons {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+      }
+      .mode-buttons button {
+        padding: 6px 10px;
+        border-radius: 4px;
+        border: 1px solid #333;
+        background: #2b2b2c;
+        color: #fff;
+        cursor: pointer;
+      }
+      .mode-buttons button.active {
+        background: #3b5cff;
+      }
+      #hud {
+        position: fixed;
+        top: 60px;
+        left: 20px;
+        background: rgba(0,0,0,0.5);
+        color: #fff;
+        padding: 8px 12px;
+        border-radius: 6px;
+        font-family: monospace;
+        display: none;
+      }
+      #defendPanel {
+        position: fixed;
+        top: 110px;
+        left: 20px;
+        width: 320px;
+        background: rgba(18,18,22,0.9);
+        border: 1px solid #333;
+        color: #eee;
+        padding: 12px;
+        border-radius: 8px;
+        display: none;
+      }
+      #defendPanel h3 { margin: 0 0 8px 0; }
+      #defendPanel label { display:block; font-size:12px; margin:8px 0 4px; color:#bbb; }
+      #defendPanel input, #defendPanel select { width:100%; padding:6px; border-radius:4px; border:1px solid #444; background:#1f1f22; color:#fff; }
+      #defendPanel button { margin-top:8px; width:100%; padding:8px; border-radius:4px; border:1px solid #444; background:#2b2b2c; color:#fff; cursor:pointer; }
+      #defendResults { margin-top:10px; font-family:monospace; white-space:pre-wrap; }
+      #modalBackdrop {
+        position: fixed; inset: 0; background: rgba(0,0,0,0.55); display: none; z-index: 50;
+      }
+      #modal {
+        position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+        width: 440px; background: #141418; color: #eee; border: 1px solid #333; border-radius: 8px;
+        display: none; z-index: 60; padding: 14px;
+      }
+      #modal h3 { margin: 0 0 8px 0; }
+      #modal p { margin: 6px 0; }
+      #modal button { margin-top: 10px; padding: 6px 10px; border: 1px solid #444; background: #2b2b2c; color: #fff; border-radius: 4px; cursor: pointer; }
+      .tooltip {
+        position: absolute;
+        background: #222;
+        color: #fff;
+        padding: 6px 8px;
+        border-radius: 4px;
+        font-size: 12px;
+        display: none;
+        z-index: 30;
+      }
+      .dropdown {
+        display: none;
+        position: absolute;
+        top: 38px;
+        right: 0;
+        background: #222;
+        color: #fff;
+        border-radius: 4px;
+        width: 220px;
+        max-height: 150px;
+        overflow-y: auto;
+        z-index: 20;
+      }
+      .dropdown div {
+        padding: 8px;
+        cursor: pointer;
+      }
+      .dropdown div:hover {
+        background: #333;
+      }
+      #infoPanel {
+        position: fixed;
+        top: 70px;
+        right: 20px;
+        background: rgba(0,0,0,0.6);
+        color: white;
+        padding: 12px;
+        border-radius: 8px;
+        font-family: monospace;
+        display: none;
+        width: 220px;
+      }
+    </style>
+
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://cdn.jsdelivr.net/npm/three@0.161/build/three.module.js",
+          "jsm/": "https://cdn.jsdelivr.net/npm/three@0.161/examples/jsm/"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <!-- Navbar -->
+    <nav>
+      <h1><a href="./">Asteroid Simulation</a></h1>
+      <div class="search-container">
+        <input type="text" id="searchBox" placeholder="Search asteroid..." />
+        <button id="searchBtn">Search</button>
+        <button id="clearBtn" title="Clear all asteroids">Clear</button>
+        <div class="dropdown" id="dropdownMenu"></div>
+      </div>
+      <div class="mode-buttons" role="group" aria-label="Modes">
+        <button id="modeExplore" class="active" aria-pressed="true">Explore</button>
+        <button id="modeDefend" aria-pressed="false">Defend</button>
+      </div>
+    </nav>
+
+    <!-- Info Panel -->
+    <div id="infoPanel"></div>
+    <div id="hud"></div>
+    <div id="defendPanel" aria-live="polite">
+      <h3>Defend Tools</h3>
+      <label>Density (kg/m³)</label>
+      <input id="densInput" type="number" value="3000" />
+      <label>Velocity (km/s)</label>
+      <input id="velInput" type="number" value="20" />
+      <label>Diameter (m)</label>
+      <input id="diaInput" type="number" value="150" />
+      <label>Region (city)</label>
+      <select id="citySelect">
+        <option value="">— Select —</option>
+        <option value="37.7749,-122.4194,San Francisco">San Francisco</option>
+        <option value="34.0522,-118.2437,Los Angeles">Los Angeles</option>
+        <option value="40.7128,-74.0060,New York">New York</option>
+        <option value="51.5074,-0.1278,London">London</option>
+        <option value="35.6762,139.6503,Tokyo">Tokyo</option>
+        <option value="-33.8688,151.2093,Sydney">Sydney</option>
+        <option value="28.6139,77.2090,Delhi">Delhi</option>
+        <option value="-23.5505,-46.6333,São Paulo">São Paulo</option>
+      </select>
+      <button id="calcImpact">Calculate Impact & Crater</button>
+      <div id="defendResults"></div>
+      <hr style="border-color:#333; margin:10px 0;" />
+      <button id="btnDrop">Drop Asteroid to City</button>
+      <div style="display:flex; gap:8px; margin-top:8px;">
+        <button id="btnTractor">Apply Gravity Tractor</button>
+        <button id="btnLaser">Apply Laser Ablation</button>
+      </div>
+      <small>Tip: click an asteroid to select; press N to nudge.</small>
+    </div>
+    <div id="tooltip" class="tooltip"></div>
+    <div id="modalBackdrop"></div>
+    <div id="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+      <h3 id="modalTitle">Simulation Update</h3>
+      <div id="modalBody"></div>
+      <button id="modalClose">Close</button>
+    </div>
+
+    <!-- Your Three.js scene -->
+    <script type="module" src="src/main.js"></script>
+
+    <!-- 🔽 Place the asteroid autocomplete + info panel logic here -->
+    <script>
+      const DEFAULT_API_KEY = "5ry3PA7AjakQVAcKw3S6jQadenhCeupIOeSm4m0U"; // Replace with your NASA API key
+      const API_KEY = window.NASA_API_KEY || DEFAULT_API_KEY;
+      const searchBox = document.getElementById("searchBox");
+      const dropdownMenu = document.getElementById("dropdownMenu");
+      const clearBtn = document.getElementById("clearBtn");
+      const hud = document.getElementById("hud");
+      const tooltip = document.getElementById("tooltip");
+      const modeExplore = document.getElementById("modeExplore");
+      const modeDefend = document.getElementById("modeDefend");
+
+      let currentMode = 'explore';
+
+      function setMode(next) {
+        currentMode = next;
+        [modeExplore, modeDefend].forEach(btn => btn.classList.remove('active'));
+        modeExplore.setAttribute('aria-pressed', String(next==='explore'));
+        modeDefend.setAttribute('aria-pressed', String(next==='defend'));
+        if (next==='explore') modeExplore.classList.add('active');
+        if (next==='defend') modeDefend.classList.add('active');
+        if (next==='defend') {
+          startDefendRound();
+          document.getElementById('defendPanel').style.display = 'block';
+        } else {
+          hud.style.display = 'none';
+          document.getElementById('defendPanel').style.display = 'none';
+        }
+      }
+
+      modeExplore.addEventListener('click', () => setMode('explore'));
+      modeDefend.addEventListener('click', () => setMode('defend'));
+
+      // ARIA roles for accessibility
+      searchBox.setAttribute("role", "combobox");
+      searchBox.setAttribute("aria-autocomplete", "list");
+      searchBox.setAttribute("aria-expanded", "false");
+      searchBox.setAttribute("aria-controls", "dropdownMenu");
+      dropdownMenu.setAttribute("role", "listbox");
+      dropdownMenu.setAttribute("id", "dropdownMenu");
+
+      let asteroidCache = [];
+      let currentPage = 0;
+      let totalPages = 1;
+      let isLoading = false;
+      let hasError = false;
+      let focusedIndex = -1; // for keyboard navigation
+
+      // simple rate limit guard: at most one fetch every 600ms
+      let nextFetchAt = 0;
+
+      // debounce utility
+      function debounce(fn, delay) {
+        let t;
+        return (...args) => {
+          clearTimeout(t);
+          t = setTimeout(() => fn(...args), delay);
+        };
+      }
+
+      async function fetchAsteroids(page = 0) {
+        const now = Date.now();
+        if (isLoading || page >= totalPages || now < nextFetchAt) return;
+        nextFetchAt = now + 600;
+        isLoading = true;
+        try {
+          const url = `https://api.nasa.gov/neo/rest/v1/neo/browse?page=${page}&size=50&api_key=${API_KEY}`;
+          const res = await fetch(url);
+          const data = await res.json();
+          hasError = false;
+          totalPages = data.page.total_pages;
+          currentPage = data.page.number;
+
+          asteroidCache.push(
+            ...data.near_earth_objects.map(neo => ({
+              id: neo.id,
+              name: neo.name,
+              est_diameter: neo.estimated_diameter.meters.estimated_diameter_max.toFixed(2),
+              speed: neo.close_approach_data[0]?.relative_velocity.kilometers_per_hour || "N/A",
+              nearest_distance_km: (() => {
+                if (!neo.close_approach_data || neo.close_approach_data.length === 0) return "N/A";
+                const mins = neo.close_approach_data
+                  .map(ca => parseFloat(ca.miss_distance?.kilometers))
+                  .filter(v => Number.isFinite(v));
+                if (!mins.length) return "N/A";
+                return Math.min(...mins).toFixed(0);
+              })(),
+              discovery_date: neo.orbital_data.first_observation_date,
+              orbital_data: neo.orbital_data
+            }))
+          );
+        } catch (err) {
+          console.error("Error fetching asteroids:", err);
+          hasError = true;
+        }
+        isLoading = false;
+      }
+
+      fetchAsteroids();
+
+      function showDropdown(filter = "") {
+        dropdownMenu.innerHTML = "";
+        focusedIndex = -1;
+
+        const normalized = (filter || "").toLowerCase();
+        const results = asteroidCache.filter(a =>
+          a.name.toLowerCase().includes(normalized)
+        ).slice(0, 10);
+
+        if (hasError) {
+          const div = document.createElement("div");
+          div.textContent = "Error loading data";
+          dropdownMenu.appendChild(div);
+          dropdownMenu.style.display = "block";
+          searchBox.setAttribute("aria-expanded", "true");
+          return;
+        }
+
+        if (isLoading && results.length === 0) {
+          const div = document.createElement("div");
+          div.textContent = "Loading...";
+          dropdownMenu.appendChild(div);
+          dropdownMenu.style.display = "block";
+          searchBox.setAttribute("aria-expanded", "true");
+        } else if (!isLoading && results.length === 0) {
+          const div = document.createElement("div");
+          div.textContent = "No results";
+          dropdownMenu.appendChild(div);
+          dropdownMenu.style.display = "block";
+          searchBox.setAttribute("aria-expanded", "true");
+        } else {
+          results.forEach((a, i) => {
+            const div = document.createElement("div");
+            div.textContent = `${a.name} (${a.id})`;
+            div.setAttribute("role", "option");
+            div.setAttribute("id", `option-${a.id}`);
+            div.setAttribute("aria-selected", "false");
+            div.addEventListener("mouseenter", () => setFocusedIndex(i));
+            div.addEventListener("click", () => selectAsteroid(a));
+            dropdownMenu.appendChild(div);
+          });
+          dropdownMenu.style.display = "block";
+          searchBox.setAttribute("aria-expanded", "true");
+        }
+
+        // prefetch next page when small cache
+        if (asteroidCache.length < 100 && currentPage + 1 < totalPages) {
+          fetchAsteroids(currentPage + 1);
+        }
+      }
+
+      function selectAsteroid(asteroid) {
+        searchBox.value = asteroid.name;
+        dropdownMenu.style.display = "none";
+        searchBox.setAttribute("aria-expanded", "false");
+        updateAsteroidInfo(asteroid);
+        if (window.addAsteroidOrbit) {
+          window.addAsteroidOrbit(asteroid.orbital_data, asteroid.id, asteroid);
+        }
+      }
+
+      function updateAsteroidInfo(asteroid) {
+        const panel = document.getElementById("infoPanel");
+        panel.innerHTML = `
+          <h3>${asteroid.name}</h3>
+          <p><b>ID:</b> ${asteroid.id}</p>
+          <p><b>Size:</b> ${asteroid.est_diameter} m</p>
+          <p><b>Speed:</b> ${asteroid.speed} km/h</p>
+          <p><b>Nearest to Earth:</b> ${asteroid.nearest_distance_km || 'N/A'} km</p>
+          <p><b>Discovered:</b> ${asteroid.discovery_date}</p>
+        `;
+        panel.style.display = "block";
+      }
+
+      const debouncedShow = debounce(() => showDropdown(searchBox.value), 250);
+      searchBox.addEventListener("focus", () => showDropdown(searchBox.value));
+      searchBox.addEventListener("input", debouncedShow);
+
+      function setFocusedIndex(index) {
+        const items = Array.from(dropdownMenu.children);
+        if (items.length === 0) return;
+        focusedIndex = Math.max(0, Math.min(index, items.length - 1));
+        items.forEach((el, i) => {
+          const isActive = i === focusedIndex;
+          el.style.background = isActive ? "#333" : "";
+          el.setAttribute("aria-selected", isActive ? "true" : "false");
+        });
+      }
+
+      function selectFocusedItem() {
+        const items = Array.from(dropdownMenu.children);
+        if (focusedIndex < 0 || focusedIndex >= items.length) return;
+        const text = items[focusedIndex].textContent || "";
+        const idMatch = text.match(/\(([^)]+)\)$/);
+        const selected = asteroidCache.find(a => idMatch && a.id === idMatch[1]);
+        if (selected) selectAsteroid(selected);
+      }
+
+      searchBox.addEventListener("keydown", (e) => {
+        const items = Array.from(dropdownMenu.children);
+        if (e.key === "ArrowDown") {
+          if (dropdownMenu.style.display !== "block") showDropdown(searchBox.value);
+          setFocusedIndex(focusedIndex + 1);
+          e.preventDefault();
+        } else if (e.key === "ArrowUp") {
+          setFocusedIndex(focusedIndex - 1);
+          e.preventDefault();
+        } else if (e.key === "Enter") {
+          if (dropdownMenu.style.display === "block") {
+            selectFocusedItem();
+            e.preventDefault();
+          }
+        } else if (e.key === "Escape") {
+          dropdownMenu.style.display = "none";
+          searchBox.setAttribute("aria-expanded", "false");
+        }
+      });
+
+      document.addEventListener("click", (e) => {
+        if (!e.target.closest(".search-container")) {
+          dropdownMenu.style.display = "none";
+        }
+      });
+
+      clearBtn.addEventListener("click", () => {
+        if (window.clearAsteroids) window.clearAsteroids();
+        const panel = document.getElementById("infoPanel");
+        panel.innerHTML = "";
+        panel.style.display = "none";
+        dropdownMenu.style.display = "none";
+        searchBox.setAttribute("aria-expanded", "false");
+      });
+
+      // Minimal tooltip system
+      function showTooltip(text, x, y) {
+        tooltip.textContent = text;
+        tooltip.style.left = `${x + 12}px`;
+        tooltip.style.top = `${y + 12}px`;
+        tooltip.style.display = 'block';
+      }
+      function hideTooltip() {
+        tooltip.style.display = 'none';
+      }
+
+      // Defend round MVP
+      let defendTimerId = null;
+      function startDefendRound() {
+        if (!window.addAsteroidOrbit || !window.clearAsteroids) return;
+        window.clearAsteroids();
+        const seconds = 45;
+        let remaining = seconds;
+        hud.style.display = 'block';
+        hud.textContent = `Defend: ${remaining}s | Click Nudge to deflect`;        
+        if (defendTimerId) clearInterval(defendTimerId);
+        defendTimerId = setInterval(() => {
+          remaining -= 1;
+          hud.textContent = `Defend: ${remaining}s | Click Nudge to deflect`;
+          if (remaining <= 0) {
+            clearInterval(defendTimerId);
+            hud.textContent = 'Round over';
+          }
+        }, 1000);
+
+        // No preloaded asteroid in Defend mode; user chooses city and drops one
+      }
+
+      // Nudge action: simple small delta-v approximation (adjust omega a little)
+      document.addEventListener('keydown', (e) => {
+        if (currentMode !== 'defend') return;
+        if (e.key.toLowerCase() === 'n') {
+          if (window.nudgeSelectedAsteroid) {
+            window.nudgeSelectedAsteroid();
+            showTooltip('Applied nudge (Δv) to selected asteroid', e.clientX || 20, e.clientY || 60);
+            setTimeout(hideTooltip, 1200);
+          }
+        }
+      });
+
+      // Impact energy and crater estimate
+      function calcImpactEnergy(density, diameter, velocityKmS) {
+        const r = diameter / 2; // m
+        const volume = (4/3) * Math.PI * Math.pow(r, 3); // m^3
+        const mass = density * volume; // kg
+        const v = velocityKmS * 1000; // m/s
+        const energyJ = 0.5 * mass * v * v; // Joules
+        const tntJ = 4.184e9; // J per kiloton TNT
+        const kt = energyJ / tntJ; // kilotons
+        const mt = kt / 1000; // megatons
+        return { energyJ, kt, mt };
+      }
+
+      // Crater scaling (simple Holsapple-inspired rough rule of thumb): D_crater ≈ 20 * (E_mt)^(1/3) meters on land
+      function estimateCraterDiameterMeters(energyMt) {
+        return 20 * Math.cbrt(Math.max(energyMt, 0));
+      }
+
+      document.getElementById('calcImpact').addEventListener('click', () => {
+        const dens = parseFloat(document.getElementById('densInput').value || '3000');
+        const vel = parseFloat(document.getElementById('velInput').value || '20');
+        const dia = parseFloat(document.getElementById('diaInput').value || '150');
+        const { energyJ, kt, mt } = calcImpactEnergy(dens, dia, vel);
+        const craterM = estimateCraterDiameterMeters(mt);
+        const results = `Energy: ${mt.toFixed(2)} Mt (${kt.toFixed(0)} kt)\nCrater diameter (rough): ${craterM.toFixed(0)} m`;
+        document.getElementById('defendResults').textContent = results;
+        // If a city is selected, draw corridor (no popup)
+        const sel = document.getElementById('citySelect').value;
+        if (sel) {
+          const [lat, lon, name] = sel.split(',');
+          if (window.focusCity) window.focusCity(parseFloat(lat), parseFloat(lon), name);
+          // corridor ~ crater diameter scaled to angular radius
+          if (window.showImpactCorridor) window.showImpactCorridor(parseFloat(lat), parseFloat(lon), Math.max(10, craterM));
+        }
+      });
+
+      // Drop asteroid straight towards selected city
+      document.getElementById('btnDrop').addEventListener('click', () => {
+        const sel = document.getElementById('citySelect').value;
+        if (!sel) { showModal('Select a city first.'); return; }
+        const [lat, lon, name] = sel.split(',');
+        const vel = parseFloat(document.getElementById('velInput').value || '20'); // km/s
+        const dia = parseFloat(document.getElementById('diaInput').value || '150'); // m
+        if (window.dropAsteroidTo) window.dropAsteroidTo(parseFloat(lat), parseFloat(lon), dia, vel, name);
+      });
+
+      // Mitigation mock effects applied to selected asteroid
+      document.getElementById('btnTractor').addEventListener('click', () => {
+        if (window.applyMitigation) window.applyMitigation('tractor');
+      });
+      document.getElementById('btnLaser').addEventListener('click', () => {
+        if (window.applyMitigation) window.applyMitigation('laser');
+      });
+
+      // City focus
+      document.getElementById('citySelect').addEventListener('change', (e) => {
+        const val = e.target.value;
+        if (!val) return;
+        const [lat, lon, name] = val.split(',');
+        if (window.focusCity) window.focusCity(parseFloat(lat), parseFloat(lon), name);
+      });
+
+      // Modal helpers
+      function showModal(text) {
+        document.getElementById('modalBody').textContent = text;
+        document.getElementById('modalBackdrop').style.display = 'block';
+        document.getElementById('modal').style.display = 'block';
+      }
+      function hideModal() {
+        document.getElementById('modalBackdrop').style.display = 'none';
+        document.getElementById('modal').style.display = 'none';
+      }
+      document.getElementById('modalClose').addEventListener('click', hideModal);
+      document.getElementById('modalBackdrop').addEventListener('click', hideModal);
+
+      // drawAsteroidOrbit provided by scene in src/main.js via window.drawAsteroidOrbit
+    </script>
+  </body>
+</html>
