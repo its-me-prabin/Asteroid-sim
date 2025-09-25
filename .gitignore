@@ -16,7 +16,7 @@ build/
 .env.production.local
 
 # API Keys
-config.js
+# config.js - commented out for deployment
 
 # IDE files
 .vscode/settings.json
