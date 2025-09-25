@@ -4,6 +4,10 @@ import { OrbitControls } from 'jsm/controls/OrbitControls.js';
 import getStarfield from "./getStarfield.js";
 import { getFresnelMat } from "./getFresnelMat.js";
 
+// Debug: Check if Three.js loaded
+console.log("Three.js loaded:", THREE);
+console.log("OrbitControls loaded:", OrbitControls);
+
 /* ---------------------- Scene & Earth (kept from your original) ---------------------- */
 const w = window.innerWidth;
 const h = window.innerHeight;
@@ -28,6 +32,14 @@ controls.update();
 
 const detail = 12;
 const loader = new THREE.TextureLoader();
+
+// Add error handling for texture loading
+loader.load("/textures/earthmap10k.jpg", 
+  (texture) => console.log("Earth map loaded successfully"),
+  undefined,
+  (error) => console.error("Error loading earth map:", error)
+);
+
 const geometry = new THREE.IcosahedronGeometry(1, detail);
 const material = new THREE.MeshPhongMaterial({
   map: loader.load("/textures/earthmap10k.jpg"),
