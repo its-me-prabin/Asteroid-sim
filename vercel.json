@@ -4,6 +4,9 @@
       { "src": "index.html", "use": "@vercel/static" }
     ],
     "routes": [
+      { "src": "/src/(.*)", "dest": "/src/$1" },
+      { "src": "/textures/(.*)", "dest": "/textures/$1" },
+      { "src": "/config.js", "dest": "/config.js" },
       { "src": "/(.*)", "dest": "/index.html" }
     ]
   }

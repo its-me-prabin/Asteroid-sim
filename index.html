@@ -261,7 +261,7 @@
       let hasError = false;
       let focusedIndex = -1; // for keyboard navigation
 
-      // simple rate limit guard: at most one fetch every 600ms
+      // simple rate limit guard: at most one fetch every 2 seconds
       let nextFetchAt = 0;
 
       // debounce utility
@@ -276,7 +276,7 @@
       async function fetchAsteroids(page = 0) {
         const now = Date.now();
         if (isLoading || page >= totalPages || now < nextFetchAt) return;
-        nextFetchAt = now + 600;
+        nextFetchAt = now + 2000;
         isLoading = true;
         try {
           const url = `https://api.nasa.gov/neo/rest/v1/neo/browse?page=${page}&size=50&api_key=${API_KEY}`;
@@ -307,6 +307,11 @@
         } catch (err) {
           console.error("Error fetching asteroids:", err);
           hasError = true;
+          // Handle rate limiting specifically
+          if (err.message && err.message.includes('429')) {
+            console.warn("NASA API rate limit reached. Using demo data.");
+            // You could add fallback demo data here
+          }
         }
         isLoading = false;
       }
