@@ -87,15 +87,40 @@ camera.lookAt(5, 0, 0);
 /* ---------------------- Simple Sun + Earth orbit positioning ---------------------- */
 /* We'll place a small sun at origin. We'll render Earth's orbit ring at 1 AU (scaled). */
 const AU_TO_SCENE = 5; // 1 AU == 5 scene units (tweak as you like)
-const sunMat = new THREE.MeshBasicMaterial({ color: 0xffe0aa });
-const sunMesh = new THREE.Mesh(new THREE.SphereGeometry(0.5, 24, 24), sunMat);
+// Create a more realistic sun with emissive material
+const sunMat = new THREE.MeshBasicMaterial({ 
+  color: 0xffaa44,
+  emissive: 0xff6600,
+  emissiveIntensity: 0.8
+});
+const sunMesh = new THREE.Mesh(new THREE.SphereGeometry(0.5, 32, 32), sunMat);
 scene.add(sunMesh);
 
-// Add a subtle glow using a sprite (lens flare-like)
+// Add a subtle glow using lensflare textures
 const glowTex = new THREE.TextureLoader().load('./textures/lensflare0.png');
-const sunGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0xffcc88, transparent: true, opacity: 0.6, depthWrite: false }));
+const sunGlow = new THREE.Sprite(new THREE.SpriteMaterial({ 
+  map: glowTex, 
+  color: 0xffcc88, 
+  transparent: true, 
+  opacity: 0.6, 
+  depthWrite: false,
+  blending: THREE.AdditiveBlending
+}));
 sunGlow.scale.set(2.2, 2.2, 1);
 sunMesh.add(sunGlow);
+
+// Add additional lensflare effect for more depth
+const lensflareTex = new THREE.TextureLoader().load('./textures/lensflare3.png');
+const sunLensflare = new THREE.Sprite(new THREE.SpriteMaterial({ 
+  map: lensflareTex, 
+  color: 0xffaa44, 
+  transparent: true, 
+  opacity: 0.4, 
+  depthWrite: false,
+  blending: THREE.AdditiveBlending
+}));
+sunLensflare.scale.set(3.0, 3.0, 1);
+sunMesh.add(sunLensflare);
 
 /* Move the Earth mesh to its orbital position at 1 AU (so orbits appear relative to sun) */
 const earthOrbitDistance = 1 * AU_TO_SCENE;
@@ -300,38 +325,71 @@ window.dropAsteroidTo = function(lat, lon, diameterMeters, velocityKmS, cityName
   const projectile = { marker, trail, dir, speed, target, cityName };
   projectiles.add(projectile);
 };
-// Simple mitigation effects
+// Enhanced mitigation effects
 window.applyMitigation = function(type) {
   // operate on last selected asteroid
   const ids = Array.from(asteroidObjects.keys());
   const lastId = ids[ids.length - 1];
   const obj = asteroidObjects.get(lastId);
   if (!obj || !obj.meta || !obj.meta.orbital_data) return;
+  
   const od = obj.meta.orbital_data;
   const a0 = parseFloat(od.semi_major_axis) || parseFloat(od.semi_major_axis_au) || 1.5;
   const e0 = parseFloat(od.eccentricity) || 0.2;
-  let a = a0, e = e0;
+  const i0 = THREE.MathUtils.degToRad(parseFloat(od.inclination) || 0);
+  const Omega0 = THREE.MathUtils.degToRad(parseFloat(od.ascending_node_longitude) || 0);
+  const omega0 = THREE.MathUtils.degToRad(parseFloat(od.perihelion_argument) || 0);
+  
+  let a = a0, e = e0, i = i0, Omega = Omega0, omega = omega0;
+  let effectMessage = '';
+  
   if (type === 'tractor') {
-    // gravity tractor: small gradual change reducing eccentricity and increasing semi-major axis slightly
-    e = Math.max(0, e0 - 0.02);
-    a = a0 + 0.03;
+    // Gravity tractor: gradual orbital modification
+    // Reduces eccentricity and increases semi-major axis (moves away from Earth)
+    e = Math.max(0.01, e0 - 0.05); // Reduce eccentricity
+    a = a0 + 0.1; // Increase semi-major axis
+    // Slight inclination change
+    i = i0 + THREE.MathUtils.degToRad(2);
+    effectMessage = `Gravity Tractor Applied!\n\nOrbit modified:\n• Eccentricity: ${e0.toFixed(3)} → ${e.toFixed(3)}\n• Semi-major axis: ${a0.toFixed(3)} → ${a.toFixed(3)} AU\n• Inclination: ${(i0 * 180/Math.PI).toFixed(1)}° → ${(i * 180/Math.PI).toFixed(1)}°\n\nAsteroid trajectory deflected away from Earth.`;
   } else if (type === 'laser') {
-    // laser ablation: nudge perihelion argument and reduce semi-major axis slightly
-    od.perihelion_argument = (parseFloat(od.perihelion_argument) || 0) + 5;
-    a = Math.max(0.8, a0 - 0.05);
+    // Laser ablation: more aggressive orbital change
+    // Changes perihelion argument and reduces semi-major axis
+    omega = omega0 + THREE.MathUtils.degToRad(15); // Change argument of perihelion
+    a = Math.max(0.8, a0 - 0.15); // Reduce semi-major axis
+    e = Math.max(0.01, e0 + 0.03); // Slightly increase eccentricity
+    // Significant inclination change
+    i = i0 + THREE.MathUtils.degToRad(8);
+    effectMessage = `Laser Ablation Applied!\n\nOrbit modified:\n• Perihelion argument: ${(omega0 * 180/Math.PI).toFixed(1)}° → ${(omega * 180/Math.PI).toFixed(1)}°\n• Semi-major axis: ${a0.toFixed(3)} → ${a.toFixed(3)} AU\n• Eccentricity: ${e0.toFixed(3)} → ${e.toFixed(3)}\n• Inclination: ${(i0 * 180/Math.PI).toFixed(1)}° → ${(i * 180/Math.PI).toFixed(1)}°\n\nAsteroid trajectory significantly altered.`;
   }
-  const i = THREE.MathUtils.degToRad(parseFloat(od.inclination) || 0);
-  const Omega = THREE.MathUtils.degToRad(parseFloat(od.ascending_node_longitude) || 0);
-  const omega = THREE.MathUtils.degToRad(parseFloat(od.perihelion_argument) || 0);
+  
+  // Generate new orbit points
   const pts = orbitPointsFromElements(a, e, i, Omega, omega, 1400);
-  // update visuals
-  scene.remove(obj.line); obj.line.geometry.dispose(); obj.line.material.dispose();
-  obj.line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color: obj.color, linewidth: 2 }));
+  
+  // Update visuals with color change to show modification
+  const newColor = type === 'tractor' ? 0x00ff88 : 0xff8800; // Green for tractor, Orange for laser
+  scene.remove(obj.line); 
+  obj.line.geometry.dispose(); 
+  obj.line.material.dispose();
+  obj.line = new THREE.Line(
+    new THREE.BufferGeometry().setFromPoints(pts), 
+    new THREE.LineBasicMaterial({ color: newColor, linewidth: 3 })
+  );
   scene.add(obj.line);
   obj.points = pts;
   obj.t = 0;
-  // write back od
-  od.semi_major_axis = a; od.eccentricity = e;
+  
+  // Update marker color
+  obj.marker.material.color.setHex(newColor);
+  
+  // Write back orbital data
+  od.semi_major_axis = a; 
+  od.eccentricity = e;
+  od.inclination = i * 180/Math.PI;
+  od.ascending_node_longitude = Omega * 180/Math.PI;
+  od.perihelion_argument = omega * 180/Math.PI;
+  
+  // Show effect message
+  showImpactModal(effectMessage);
 };
 
 // Nudge currently selected asteroid by tweaking argument of perihelion a bit
@@ -356,6 +414,270 @@ window.nudgeSelectedAsteroid = function() {
   obj.t = 0;
 };
 
+/* ---------------------- Impact Effects System ---------------------- */
+const impactEffects = new Set();
+let cameraShakeIntensity = 0;
+let cameraShakeDuration = 0;
+const originalCameraPosition = camera.position.clone();
+
+// Audio context for impact sounds (optional)
+let audioContext = null;
+let impactSoundBuffer = null;
+
+function initAudio() {
+  try {
+    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    createImpactSound();
+  } catch (e) {
+    console.log('Audio not supported or disabled');
+  }
+}
+
+function createImpactSound() {
+  if (!audioContext) return;
+  
+  const sampleRate = audioContext.sampleRate;
+  const duration = 0.5; // seconds
+  const buffer = audioContext.createBuffer(1, sampleRate * duration, sampleRate);
+  const data = buffer.getChannelData(0);
+  
+  // Create a low-frequency rumble with some high-frequency crack
+  for (let i = 0; i < data.length; i++) {
+    const t = i / sampleRate;
+    const rumble = Math.sin(2 * Math.PI * 60 * t) * Math.exp(-t * 3) * 0.3;
+    const crack = (Math.random() - 0.5) * Math.exp(-t * 8) * 0.1;
+    data[i] = rumble + crack;
+  }
+  
+  impactSoundBuffer = buffer;
+}
+
+function playImpactSound(intensity = 1.0) {
+  if (!audioContext || !impactSoundBuffer) return;
+  
+  try {
+    const source = audioContext.createBufferSource();
+    const gainNode = audioContext.createGain();
+    
+    source.buffer = impactSoundBuffer;
+    gainNode.gain.value = Math.min(1.0, intensity * 0.5);
+    
+    source.connect(gainNode);
+    gainNode.connect(audioContext.destination);
+    
+    source.start();
+  } catch (e) {
+    console.log('Could not play impact sound:', e);
+  }
+}
+
+function createExplosionEffect(position, scale = 1.0) {
+  const explosionGroup = new THREE.Group();
+  explosionGroup.position.copy(position);
+  scene.add(explosionGroup);
+
+  // Main explosion sphere
+  const explosionGeometry = new THREE.SphereGeometry(0.1, 16, 16);
+  const explosionMaterial = new THREE.MeshBasicMaterial({
+    color: 0xff6600,
+    transparent: true,
+    opacity: 0.8,
+    blending: THREE.AdditiveBlending
+  });
+  const explosionMesh = new THREE.Mesh(explosionGeometry, explosionMaterial);
+  explosionGroup.add(explosionMesh);
+
+  // Shockwave ring
+  const shockwaveGeometry = new THREE.RingGeometry(0.05, 0.15, 32);
+  const shockwaveMaterial = new THREE.MeshBasicMaterial({
+    color: 0xffff00,
+    transparent: true,
+    opacity: 0.6,
+    side: THREE.DoubleSide,
+    blending: THREE.AdditiveBlending
+  });
+  const shockwaveMesh = new THREE.Mesh(shockwaveGeometry, shockwaveMaterial);
+  shockwaveMesh.rotation.x = Math.PI / 2;
+  explosionGroup.add(shockwaveMesh);
+
+  // Debris particles
+  const debrisCount = 20;
+  const debrisGeometry = new THREE.BufferGeometry();
+  const debrisPositions = new Float32Array(debrisCount * 3);
+  const debrisVelocities = [];
+  
+  for (let i = 0; i < debrisCount; i++) {
+    const i3 = i * 3;
+    debrisPositions[i3] = 0;
+    debrisPositions[i3 + 1] = 0;
+    debrisPositions[i3 + 2] = 0;
+    
+    debrisVelocities.push({
+      x: (Math.random() - 0.5) * 0.3,
+      y: Math.random() * 0.4 + 0.1,
+      z: (Math.random() - 0.5) * 0.3
+    });
+  }
+  
+  debrisGeometry.setAttribute('position', new THREE.BufferAttribute(debrisPositions, 3));
+  const debrisMaterial = new THREE.PointsMaterial({
+    color: 0xff4400,
+    size: 0.02,
+    transparent: true,
+    opacity: 0.8,
+    blending: THREE.AdditiveBlending
+  });
+  const debrisPoints = new THREE.Points(debrisGeometry, debrisMaterial);
+  explosionGroup.add(debrisPoints);
+
+  const effect = {
+    group: explosionGroup,
+    explosion: explosionMesh,
+    shockwave: shockwaveMesh,
+    debris: debrisPoints,
+    debrisVelocities: debrisVelocities,
+    age: 0,
+    maxAge: 3.0,
+    scale: scale
+  };
+
+  impactEffects.add(effect);
+  return effect;
+}
+
+function createEarthDamage(position, craterSize) {
+  // Create a dark crater mark on Earth surface
+  const craterGeometry = new THREE.CircleGeometry(craterSize, 32);
+  const craterMaterial = new THREE.MeshBasicMaterial({
+    color: 0x2a1810,
+    transparent: true,
+    opacity: 0.8,
+    side: THREE.DoubleSide
+  });
+  const craterMesh = new THREE.Mesh(craterGeometry, craterMaterial);
+  
+  // Position crater on Earth surface
+  const earthCenter = earthGroup.position;
+  const direction = position.clone().sub(earthCenter).normalize();
+  craterMesh.position.copy(earthCenter).add(direction.multiplyScalar(0.4));
+  craterMesh.lookAt(earthCenter);
+  craterMesh.rotation.z += Math.PI / 2;
+  
+  scene.add(craterMesh);
+
+  // Add fire/smoke effect
+  const fireGeometry = new THREE.ConeGeometry(craterSize * 0.8, craterSize * 0.5, 8);
+  const fireMaterial = new THREE.MeshBasicMaterial({
+    color: 0xff4400,
+    transparent: true,
+    opacity: 0.6,
+    blending: THREE.AdditiveBlending
+  });
+  const fireMesh = new THREE.Mesh(fireGeometry, fireMaterial);
+  fireMesh.position.copy(craterMesh.position);
+  fireMesh.lookAt(camera.position);
+  scene.add(fireMesh);
+
+  // Animate fire
+  const fireEffect = {
+    mesh: fireMesh,
+    age: 0,
+    maxAge: 5.0,
+    originalScale: fireMesh.scale.clone()
+  };
+
+  impactEffects.add(fireEffect);
+  
+  // Remove crater after some time
+  setTimeout(() => {
+    scene.remove(craterMesh);
+    craterMesh.geometry.dispose();
+    craterMesh.material.dispose();
+  }, 10000);
+
+  return craterMesh;
+}
+
+function updateImpactEffects(dt) {
+  for (const effect of Array.from(impactEffects)) {
+    effect.age += dt;
+    
+    if (effect.age >= effect.maxAge) {
+      // Clean up expired effects
+      if (effect.group) {
+        scene.remove(effect.group);
+        effect.group.traverse((child) => {
+          if (child.geometry) child.geometry.dispose();
+          if (child.material) child.material.dispose();
+        });
+      }
+      if (effect.mesh) {
+        scene.remove(effect.mesh);
+        effect.mesh.geometry.dispose();
+        effect.mesh.material.dispose();
+      }
+      impactEffects.delete(effect);
+      continue;
+    }
+
+    const progress = effect.age / effect.maxAge;
+    
+    if (effect.explosion) {
+      // Animate explosion
+      const explosionScale = (1 + progress * 3) * effect.scale;
+      effect.explosion.scale.setScalar(explosionScale);
+      effect.explosion.material.opacity = (1 - progress) * 0.8;
+      
+      // Animate shockwave
+      const shockwaveScale = (1 + progress * 5) * effect.scale;
+      effect.shockwave.scale.setScalar(shockwaveScale);
+      effect.shockwave.material.opacity = (1 - progress) * 0.6;
+      
+      // Animate debris
+      if (effect.debris && effect.debrisVelocities) {
+        const positions = effect.debris.geometry.attributes.position.array;
+        for (let i = 0; i < effect.debrisVelocities.length; i++) {
+          const i3 = i * 3;
+          const vel = effect.debrisVelocities[i];
+          positions[i3] += vel.x * dt;
+          positions[i3 + 1] += vel.y * dt;
+          positions[i3 + 2] += vel.z * dt;
+          vel.y -= 0.5 * dt; // gravity
+        }
+        effect.debris.geometry.attributes.position.needsUpdate = true;
+        effect.debris.material.opacity = (1 - progress) * 0.8;
+      }
+    }
+    
+    if (effect.mesh && effect.originalScale) {
+      // Animate fire effect
+      const fireScale = (1 - progress * 0.5) * effect.scale;
+      effect.mesh.scale.copy(effect.originalScale).multiplyScalar(fireScale);
+      effect.mesh.material.opacity = (1 - progress) * 0.6;
+    }
+  }
+}
+
+function addCameraShake(intensity = 0.1, duration = 0.5) {
+  cameraShakeIntensity = intensity;
+  cameraShakeDuration = duration;
+}
+
+function updateCameraShake(dt) {
+  if (cameraShakeDuration > 0) {
+    cameraShakeDuration -= dt;
+    const shakeAmount = cameraShakeIntensity * (cameraShakeDuration / 0.5);
+    
+    camera.position.x = originalCameraPosition.x + (Math.random() - 0.5) * shakeAmount;
+    camera.position.y = originalCameraPosition.y + (Math.random() - 0.5) * shakeAmount;
+    camera.position.z = originalCameraPosition.z + (Math.random() - 0.5) * shakeAmount;
+    
+    if (cameraShakeDuration <= 0) {
+      camera.position.copy(originalCameraPosition);
+    }
+  }
+}
+
 /* ---------------------- Animation loop ---------------------- */
 let lastTS = performance.now();
 function animate(ts) {
@@ -373,6 +695,23 @@ function animate(ts) {
   const revSpeed = 0.05; // radians per second (tweak)
   const angle = ts * 0.001 * revSpeed;
   earthGroup.position.set(Math.cos(angle) * earthOrbitDistance, 0, Math.sin(angle) * earthOrbitDistance);
+
+  // Update impact effects
+  updateImpactEffects(dt);
+  
+  // Update camera shake
+  updateCameraShake(dt);
+  
+  // Rotate sun slowly
+  sunMesh.rotation.y += 0.001;
+  
+  // Add subtle rotation to lensflare sprites for more dynamic effect
+  if (sunGlow) {
+    sunGlow.rotation.z += 0.0005;
+  }
+  if (sunLensflare) {
+    sunLensflare.rotation.z -= 0.0003;
+  }
 
   // animate all asteroids along their orbits
   for (const obj of asteroidObjects.values()) {
@@ -402,53 +741,97 @@ function animate(ts) {
     const hitGround = toCenter <= earthRadius + 0.1;
     const reachedTarget = p.marker.position.distanceTo(p.target) < 0.2;
     if (hitGround || reachedTarget) {
-      const tex = new THREE.TextureLoader().load('/textures/lensflare3.png', () => {
-        // try showing modal once texture ensures render pipeline is active
-        if (hitGround) {
-          const densEl = document.getElementById('densInput');
-          const velEl = document.getElementById('velInput');
-          const diaEl = document.getElementById('diaInput');
-          const density = densEl ? parseFloat(densEl.value || '3000') : 3000;
-          const vKmS = velEl ? parseFloat(velEl.value || '20') : 20;
-          const dia = diaEl ? parseFloat(diaEl.value || '150') : 150;
-          const r = dia / 2;
-          const volume = (4/3) * Math.PI * Math.pow(r, 3);
-          const mass = density * volume;
-          const v = vKmS * 1000;
-          const energyJ = 0.5 * mass * v * v;
-          const kt = energyJ / 4.184e9; const mt = kt / 1000;
-          const craterM = 20 * Math.cbrt(Math.max(mt, 0));
-          let deaths = Math.round(Math.min(50_000_000, (mt * 20000)));
-          showImpactModal(`Impact near ${p.cityName || 'target'}.\nEnergy: ${mt.toFixed(2)} Mt\nCrater ~ ${craterM.toFixed(0)} m\nEstimated deaths: ${deaths.toLocaleString()}`);
-        }
-      });
-      const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, color: 0xff8844, transparent: true }));
-      spr.scale.set(1.5, 1.5, 1);
-      spr.position.copy(p.target);
-      scene.add(spr);
-      setTimeout(() => scene.remove(spr), 1200);
-      // compute impact only if it hit Earth
+      // Calculate impact parameters
+      const densEl = document.getElementById('densInput');
+      const velEl = document.getElementById('velInput');
+      const diaEl = document.getElementById('diaInput');
+      const density = densEl ? parseFloat(densEl.value || '3000') : 3000;
+      const vKmS = velEl ? parseFloat(velEl.value || '20') : 20;
+      const dia = diaEl ? parseFloat(diaEl.value || '150') : 150;
+      
+      // Calculate energy and crater size
+      const r = dia / 2;
+      const volume = (4/3) * Math.PI * Math.pow(r, 3);
+      const mass = density * volume;
+      const v = vKmS * 1000;
+      const energyJ = 0.5 * mass * v * v;
+      const kt = energyJ / 4.184e9;
+      const mt = kt / 1000;
+      const craterM = 20 * Math.cbrt(Math.max(mt, 0));
+      let deaths = Math.round(Math.min(50_000_000, (mt * 20000)));
+      
+      // Create impact effects
       if (hitGround) {
-        const densEl = document.getElementById('densInput');
-        const velEl = document.getElementById('velInput');
-        const diaEl = document.getElementById('diaInput');
-        const density = densEl ? parseFloat(densEl.value || '3000') : 3000;
-        const vKmS = velEl ? parseFloat(velEl.value || '20') : 20;
-        const dia = diaEl ? parseFloat(diaEl.value || '150') : 150;
-        // energy
-        const r = dia / 2; // m
-        const volume = (4/3) * Math.PI * Math.pow(r, 3);
-        const mass = density * volume; // kg
-        const v = vKmS * 1000; // m/s
-        const energyJ = 0.5 * mass * v * v;
-        const kt = energyJ / 4.184e9; // kilotons
-        const mt = kt / 1000; // megatons
-        // crude crater scaling
-        const craterM = 20 * Math.cbrt(Math.max(mt, 0));
-        // crude casualty proxy based on city size buckets (fictional scaling)
-        let deaths = Math.round(Math.min(50_000_000, (mt * 20000)));
-        showImpactModal(`Impact near ${p.cityName || 'target'}.\nEnergy: ${mt.toFixed(2)} Mt\nCrater ~ ${craterM.toFixed(0)} m\nEstimated deaths: ${deaths.toLocaleString()}`);
+        const impactPosition = p.marker.position.clone();
+        const impactScale = Math.min(3.0, Math.max(0.5, mt / 10)); // Scale based on energy
+        
+        // Create explosion effect
+        createExplosionEffect(impactPosition, impactScale);
+        
+        // Create Earth surface damage
+        const craterSize = Math.min(0.3, Math.max(0.05, craterM / 1000)); // Scale crater to scene units
+        createEarthDamage(impactPosition, craterSize);
+        
+        // Add camera shake based on impact energy
+        const shakeIntensity = Math.min(0.3, Math.max(0.05, mt / 50));
+        const shakeDuration = Math.min(2.0, Math.max(0.5, mt / 25));
+        addCameraShake(shakeIntensity, shakeDuration);
+        
+        // Play impact sound
+        const soundIntensity = Math.min(1.0, Math.max(0.1, mt / 20));
+        playImpactSound(soundIntensity);
+        
+        // Calculate detailed impact information
+        const cityInfo = window.cityData ? window.cityData[p.cityName] : { population: 1000000, coastal: false };
+        const fireballRadius = 0.5 * Math.cbrt(mt) * 1000; // meters
+        const airblastRadius = 1.5 * Math.cbrt(mt) * 1000; // meters
+        const earthquakeMagnitude = 4.8 + 0.67 * Math.log10(mt);
+        const tsunamiHeight = cityInfo.coastal ? Math.max(0, 0.1 * Math.cbrt(mt)) : 0;
+        
+        // More realistic death calculation
+        const population = cityInfo.population || 1000000;
+        let realisticDeaths = 0;
+        if (airblastRadius < 5000) {
+          realisticDeaths = Math.min(population, population * 0.95);
+        } else if (airblastRadius < 10000) {
+          realisticDeaths = Math.min(population, population * 0.7);
+        } else if (airblastRadius < 20000) {
+          realisticDeaths = Math.min(population, population * 0.3);
+        } else if (airblastRadius < 50000) {
+          realisticDeaths = Math.min(population, population * 0.1);
+        }
+        
+        // Add tsunami casualties if coastal
+        if (cityInfo.coastal && tsunamiHeight > 0) {
+          realisticDeaths += Math.min(population * 0.1, tsunamiHeight * 1000);
+        }
+        
+        // Show enhanced impact modal with detailed information
+        const survivalRate = ((1 - realisticDeaths/population) * 100).toFixed(1);
+        showImpactModal(`💥 IMPACT DETECTED! 💥
+
+📍 Location: ${p.cityName || 'target'}
+⚡ Energy: ${mt.toFixed(2)} Mt (${kt.toFixed(0)} kt)
+🕳️ Crater: ${craterM.toFixed(0)} m diameter
+🔥 Fireball: ${fireballRadius.toFixed(0)} m radius
+💨 Airblast: ${airblastRadius.toFixed(0)} m radius
+🌍 Earthquake: ${earthquakeMagnitude.toFixed(1)} Richter
+${cityInfo.coastal ? `🌊 Tsunami: ${tsunamiHeight.toFixed(1)} m height` : 'No tsunami (inland)'}
+
+👥 Population: ${population.toLocaleString()}
+💀 Estimated Deaths: ${Math.round(realisticDeaths).toLocaleString()}
+✅ Survival Rate: ${survivalRate}%
+
+Impact effects are now visible in the simulation.`);
+      } else {
+        // Missed Earth - smaller explosion in space
+        createExplosionEffect(p.marker.position, 0.5);
+        addCameraShake(0.02, 0.2);
+        playImpactSound(0.1); // Small sound for miss
+        showImpactModal(`Asteroid missed Earth by ${(toCenter - earthRadius).toFixed(2)} units.\nNo impact damage.`);
       }
+      
+      // Clean up projectile
       scene.remove(p.marker); p.marker.geometry.dispose(); p.marker.material.dispose();
       scene.remove(p.trail); p.trail.geometry.dispose(); p.trail.material.dispose();
       projectiles.delete(p);
@@ -467,6 +850,13 @@ function handleWindowResize () {
   renderer.setSize(window.innerWidth, window.innerHeight);
 }
 window.addEventListener('resize', handleWindowResize, false);
+
+/* Initialize audio on first user interaction */
+document.addEventListener('click', () => {
+  if (!audioContext) {
+    initAudio();
+  }
+}, { once: true });
 
 /* Clean up on navigation (optional) */
 window.addEventListener("beforeunload", () => {

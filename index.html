@@ -88,15 +88,48 @@
       #defendResults { margin-top:10px; font-family:monospace; white-space:pre-wrap; }
       #modalBackdrop {
         position: fixed; inset: 0; background: rgba(0,0,0,0.55); display: none; z-index: 50;
+        pointer-events: none; /* Allow clicks through to the modal */
       }
       #modal {
-        position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
-        width: 440px; background: #141418; color: #eee; border: 1px solid #333; border-radius: 8px;
-        display: none; z-index: 60; padding: 14px;
+        position: fixed; bottom: 20px; right: 20px; 
+        width: 450px; background: linear-gradient(135deg, #1a1a1f 0%, #2d1b1b 100%); 
+        color: #eee; border: 2px solid #ff4444; border-radius: 12px;
+        display: none; z-index: 60; padding: 20px; box-shadow: 0 0 30px rgba(255, 68, 68, 0.3);
+        animation: modalSlideIn 0.5s ease-out;
+        max-height: 70vh; overflow-y: auto;
       }
-      #modal h3 { margin: 0 0 8px 0; }
-      #modal p { margin: 6px 0; }
-      #modal button { margin-top: 10px; padding: 6px 10px; border: 1px solid #444; background: #2b2b2c; color: #fff; border-radius: 4px; cursor: pointer; }
+      @keyframes modalSlideIn {
+        0% { transform: translateX(100%) translateY(100%); opacity: 0; }
+        100% { transform: translateX(0) translateY(0); opacity: 1; }
+      }
+      #modal h3 { 
+        margin: 0 0 12px 0; 
+        color: #ff6666; 
+        text-align: center; 
+        font-size: 1.4em;
+        text-shadow: 0 0 10px rgba(255, 102, 102, 0.5);
+      }
+      #modal p { 
+        margin: 8px 0; 
+        line-height: 1.4;
+        font-family: 'Courier New', monospace;
+      }
+      #modal button { 
+        margin-top: 15px; 
+        padding: 10px 20px; 
+        border: 1px solid #ff4444; 
+        background: linear-gradient(45deg, #ff4444, #cc3333); 
+        color: #fff; 
+        border-radius: 6px; 
+        cursor: pointer; 
+        font-weight: bold;
+        transition: all 0.3s ease;
+      }
+      #modal button:hover {
+        background: linear-gradient(45deg, #ff6666, #ff4444);
+        box-shadow: 0 0 15px rgba(255, 68, 68, 0.4);
+        transform: translateY(-2px);
+      }
       .tooltip {
         position: absolute;
         background: #222;
@@ -172,11 +205,11 @@
     <div id="defendPanel" aria-live="polite">
       <h3>Defend Tools</h3>
       <label>Density (kg/m³)</label>
-      <input id="densInput" type="number" value="3000" />
+      <input id="densInput" type="number" value="3000" min="100" max="5000" />
       <label>Velocity (km/s)</label>
-      <input id="velInput" type="number" value="20" />
+      <input id="velInput" type="number" value="20" min="1" max="500" />
       <label>Diameter (m)</label>
-      <input id="diaInput" type="number" value="150" />
+      <input id="diaInput" type="number" value="150" min="1" max="500" />
       <label>Region (city)</label>
       <select id="citySelect">
         <option value="">— Select —</option>
@@ -494,7 +527,61 @@
         }
       });
 
-      // Impact energy and crater estimate
+      // City population data
+      const cityData = {
+        'San Francisco': { population: 873965, coastal: true },
+        'Los Angeles': { population: 3971883, coastal: true },
+        'New York': { population: 8336817, coastal: true },
+        'London': { population: 8982000, coastal: false },
+        'Tokyo': { population: 13929286, coastal: true },
+        'Sydney': { population: 5312163, coastal: true },
+        'Delhi': { population: 32941000, coastal: false },
+        'São Paulo': { population: 12325232, coastal: false }
+      };
+      
+      // Make city data available to main.js
+      window.cityData = cityData;
+
+      // Input validation (allow any number between min/max)
+      function validateInputs() {
+        const densEl = document.getElementById('densInput');
+        const velEl = document.getElementById('velInput');
+        const diaEl = document.getElementById('diaInput');
+        
+        // Only validate if values are outside the allowed range
+        if (densEl) {
+          const density = parseFloat(densEl.value);
+          if (density < 100 || density > 5000) {
+            densEl.style.borderColor = '#ff4444';
+            densEl.title = 'Density must be between 100 and 5000 kg/m³';
+          } else {
+            densEl.style.borderColor = '#444';
+            densEl.title = '';
+          }
+        }
+        if (velEl) {
+          const velocity = parseFloat(velEl.value);
+          if (velocity < 1 || velocity > 500) {
+            velEl.style.borderColor = '#ff4444';
+            velEl.title = 'Velocity must be between 1 and 500 km/s';
+          } else {
+            velEl.style.borderColor = '#444';
+            velEl.title = '';
+          }
+        }
+        if (diaEl) {
+          const diameter = parseFloat(diaEl.value);
+          if (diameter < 1 || diameter > 500) {
+            diaEl.style.borderColor = '#ff4444';
+            diaEl.title = 'Diameter must be between 1 and 500 meters';
+          } else {
+            diaEl.style.borderColor = '#444';
+            diaEl.title = '';
+          }
+        }
+      }
+
+      // Impact energy calculation
       function calcImpactEnergy(density, diameter, velocityKmS) {
         const r = diameter / 2; // m
         const volume = (4/3) * Math.PI * Math.pow(r, 3); // m^3
@@ -507,10 +594,118 @@
         return { energyJ, kt, mt };
       }
 
+      function calculateDetailedImpact(density, diameter, velocityKmS, cityName) {
+        const { energyJ, kt, mt } = calcImpactEnergy(density, diameter, velocityKmS);
+        
+        // Crater diameter (Holsapple scaling)
+        const craterDiameter = 20 * Math.cbrt(Math.max(mt, 0));
+        
+        // Fireball radius (thermal effects)
+        const fireballRadius = 0.5 * Math.cbrt(mt) * 1000; // meters
+        
+        // Airblast radius (overpressure effects)
+        const airblastRadius = 1.5 * Math.cbrt(mt) * 1000; // meters
+        
+        // Earthquake magnitude (Richter scale approximation)
+        const earthquakeMagnitude = 4.8 + 0.67 * Math.log10(mt);
+        
+        // Tsunami height (if coastal)
+        const cityInfo = cityData[cityName] || { population: 1000000, coastal: false };
+        const tsunamiHeight = cityInfo.coastal ? Math.max(0, 0.1 * Math.cbrt(mt)) : 0;
+        
+        // Casualty estimates based on population density and impact energy
+        const population = cityInfo.population;
+        const impactArea = Math.PI * Math.pow(airblastRadius / 1000, 2); // km²
+        const populationDensity = population / 1000; // rough estimate
+        
+        // Death calculation based on distance from impact
+        let deaths = 0;
+        if (airblastRadius < 5000) { // Within 5km - total destruction
+          deaths = Math.min(population, population * 0.95);
+        } else if (airblastRadius < 10000) { // 5-10km - severe damage
+          deaths = Math.min(population, population * 0.7);
+        } else if (airblastRadius < 20000) { // 10-20km - moderate damage
+          deaths = Math.min(population, population * 0.3);
+        } else if (airblastRadius < 50000) { // 20-50km - light damage
+          deaths = Math.min(population, population * 0.1);
+        }
+        
+        // Add tsunami casualties if applicable
+        if (cityInfo.coastal && tsunamiHeight > 0) {
+          const tsunamiDeaths = Math.min(population * 0.1, tsunamiHeight * 1000);
+          deaths += tsunamiDeaths;
+        }
+        
+        return {
+          energyJ, kt, mt,
+          craterDiameter,
+          fireballRadius,
+          airblastRadius,
+          earthquakeMagnitude,
+          tsunamiHeight,
+          deaths: Math.round(deaths),
+          population,
+          coastal: cityInfo.coastal
+        };
+      }
+
       // Crater scaling (simple Holsapple-inspired rough rule of thumb): D_crater ≈ 20 * (E_mt)^(1/3) meters on land
       function estimateCraterDiameterMeters(energyMt) {
         return 20 * Math.cbrt(Math.max(energyMt, 0));
       }
+
+      // Create 2D crater visualization
+      function createCraterVisualization(craterDiameter, airblastRadius, fireballRadius) {
+        const canvas = document.createElement('canvas');
+        canvas.width = 300;
+        canvas.height = 300;
+        const ctx = canvas.getContext('2d');
+        
+        // Background
+        ctx.fillStyle = '#1a1a1f';
+        ctx.fillRect(0, 0, 300, 300);
+        
+        const centerX = 150;
+        const centerY = 150;
+        
+        // Scale factors (convert meters to pixels)
+        const scale = 200 / Math.max(airblastRadius, 1000); // Scale to fit in 200px radius
+        
+        // Airblast radius (outer circle)
+        ctx.strokeStyle = '#ff6666';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(centerX, centerY, airblastRadius * scale, 0, 2 * Math.PI);
+        ctx.stroke();
+        
+        // Fireball radius (middle circle)
+        ctx.strokeStyle = '#ffaa00';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(centerX, centerY, fireballRadius * scale, 0, 2 * Math.PI);
+        ctx.stroke();
+        
+        // Crater (inner circle)
+        ctx.fillStyle = '#2a1810';
+        ctx.beginPath();
+        ctx.arc(centerX, centerY, craterDiameter * scale / 2, 0, 2 * Math.PI);
+        ctx.fill();
+        
+        // Labels
+        ctx.fillStyle = '#fff';
+        ctx.font = '12px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText('Airblast', centerX, centerY - airblastRadius * scale - 10);
+        ctx.fillText('Fireball', centerX, centerY - fireballRadius * scale - 10);
+        ctx.fillText('Crater', centerX, centerY + 5);
+        
+        return canvas;
+      }
+
+      // Add real-time input validation
+      document.getElementById('densInput').addEventListener('input', validateInputs);
+      document.getElementById('velInput').addEventListener('input', validateInputs);
+      document.getElementById('diaInput').addEventListener('input', validateInputs);
 
       document.getElementById('calcImpact').addEventListener('click', () => {
         const dens = parseFloat(document.getElementById('densInput').value || '3000');
@@ -567,7 +762,8 @@
         document.getElementById('modal').style.display = 'none';
       }
       document.getElementById('modalClose').addEventListener('click', hideModal);
-      document.getElementById('modalBackdrop').addEventListener('click', hideModal);
+      // Remove backdrop click to close since modal is now on the side
+      // document.getElementById('modalBackdrop').addEventListener('click', hideModal);
 
       // drawAsteroidOrbit provided by scene in src/main.js via window.drawAsteroidOrbit
     </script>
